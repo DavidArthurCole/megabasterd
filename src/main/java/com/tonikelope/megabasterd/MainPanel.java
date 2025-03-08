@@ -22,6 +22,7 @@ import static java.awt.SystemTray.getSystemTray;
 import static java.awt.Toolkit.getDefaultToolkit;
 import java.awt.TrayIcon;
 import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowEvent;
@@ -61,6 +62,7 @@ import static javax.swing.JOptionPane.YES_NO_CANCEL_OPTION;
 import static javax.swing.JOptionPane.showOptionDialog;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.UIManager;
 
 /**
@@ -103,6 +105,7 @@ public final class MainPanel {
     public static volatile long LAST_EXTERNAL_COMMAND_TIMESTAMP;
     private static final Logger LOG = Logger.getLogger(MainPanel.class.getName());
     private static volatile boolean CHECK_RUNNING = true;
+    private Timer memoryTimer;
 
     public static void main(String args[]) {
 
@@ -373,20 +376,27 @@ public final class MainPanel {
             getView().getGlobal_speed_up_label().setForeground(_limit_upload_speed ? new Color(255, 0, 0) : new Color(0, 128, 255));
         });
 
-        THREAD_POOL.execute(() -> {
-            Runtime instance = Runtime.getRuntime();
-            while (true) {
-                long used_memory = instance.totalMemory() - instance.freeMemory();
-                long max_memory = instance.maxMemory();
-                MiscTools.GUIRun(() -> {
-                    _view.getMemory_status().setText("JVM-RAM used: " + MiscTools.formatBytes(used_memory) + " / " + MiscTools.formatBytes(max_memory));
-                });
-                try {
-                    Thread.sleep(2000);
-                } catch (InterruptedException ex) {
-                    Logger.getLogger(MainPanelView.class.getName()).log(Level.SEVERE, ex.getMessage());
-                }
+        // timer that fires every 2000ms
+        Timer memoryTimer = new Timer(2000, new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                Runtime instance = Runtime.getRuntime();
+                long usedMemory = instance.totalMemory() - instance.freeMemory();
+                long maxMemory = instance.maxMemory();
+                // update the mem status directly - already on the edt
+                _view.getMemory_status().setText("JVM-RAM used: " 
+                    + MiscTools.formatBytes(usedMemory) 
+                    + " / " + MiscTools.formatBytes(maxMemory));
             }
+        });
+        memoryTimer.start();
+        getView().addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowIconified(java.awt.event.WindowEvent e) { memoryTimer.stop(); }
+            @Override
+            public void windowDeiconified(java.awt.event.WindowEvent e) { memoryTimer.start(); }
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) { memoryTimer.stop(); }
         });
 
         resumeDownloads();
